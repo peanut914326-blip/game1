@@ -1,0 +1,990 @@
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Halloween - Zombie Night</title>
+
+<style>
+/* ===== 網頁基本設定 ===== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: #100e1b;
+    color: white;
+    font-family: Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 15px;
+}
+
+.game {
+    width: min(1100px, 100%);
+    text-align: center;
+}
+
+/* ===== 標題 ===== */
+h1 {
+    color: #ff9a43;
+    font-size: clamp(24px, 4vw, 38px);
+    letter-spacing: 5px;
+    text-shadow: 0 0 18px #ff602d;
+    margin-bottom: 12px;
+}
+
+/* ===== 遊戲資訊 ===== */
+.hud {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px;
+    background: #292033;
+    border: 1px solid #a75c35;
+    border-radius: 12px 12px 0 0;
+    color: #ffd7a4;
+    font-weight: bold;
+}
+
+.hud span { white-space: nowrap; }
+
+/* ===== 遊戲畫布 ===== */
+canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 2px solid #a75c35;
+    background: #251a2c;
+    cursor: crosshair;
+    touch-action: none;
+}
+
+/* ===== 操作區 ===== */
+.controls {
+    padding: 13px;
+    background: #292033;
+    color: #e8d6c3;
+    font-size: 14px;
+    line-height: 1.8;
+    border-radius: 0 0 12px 12px;
+}
+
+button {
+    margin-top: 15px;
+    padding: 12px 35px;
+    background: #ed792e;
+    color: white;
+    font-size: 17px;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #ff9c45;
+    box-shadow: 0 0 18px #ff762c;
+}
+
+#message {
+    color: #ffbd70;
+    font-size: 22px;
+    margin-top: 12px;
+    min-height: 30px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="game">
+
+    <h1>🎃 ZOMBIE NIGHT 🎃</h1>
+
+    <!-- 遊戲資訊 -->
+    <div class="hud">
+        <span>⭐ SCORE：<b id="score">0</b></span>
+        <span>🧟 KILLS：<b id="kills">0</b></span>
+        <span>❤️ LIFE：<b id="life">5</b></span>
+        <span>⏳ TIME：<b id="time">60</b>s</span>
+    </div>
+
+    <!-- 遊戲畫面 -->
+    <canvas id="game" width="1000" height="560"></canvas>
+
+    <!-- 操作說明 -->
+    <div class="controls">
+        按住滑鼠左鍵並拖曳：移動瞄準準星
+        <br>
+        點擊滑鼠右鍵：發射魔法南瓜彈
+        <br>
+        消滅殭屍，守住最後的墓園！
+    </div>
+
+    <button id="start">▶ START GAME</button>
+    <div id="message">準備好迎接殭屍之夜了嗎？</div>
+
+</div>
+
+<script>
+
+// ==========================================
+// 1. 取得畫布與 HTML 元素
+// ==========================================
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const scoreEl = document.getElementById("score");
+const killsEl = document.getElementById("kills");
+const lifeEl = document.getElementById("life");
+const timeEl = document.getElementById("time");
+const messageEl = document.getElementById("message");
+const startBtn = document.getElementById("start");
+
+// ==========================================
+// 2. 遊戲變數
+// ==========================================
+
+let score = 0;
+let kills = 0;
+let life = 5;
+let time = 60;
+
+let running = false;
+let lastTime = 0;
+let spawnTime = 0;
+let elapsed = 0;
+
+let zombies = [];
+let particles = [];
+let bullets = [];
+let pumpkins = [];
+let stars = [];
+let clouds = [];
+
+let shake = 0;
+
+// ==========================================
+// 3. 滑鼠控制
+// ==========================================
+
+const mouse = {
+    x: 500,
+    y: 300,
+    dragging: false
+};
+
+// 將螢幕座標換算成畫布座標
+function getMouse(e) {
+    const rect = canvas.getBoundingClientRect();
+
+    mouse.x = (e.clientX - rect.left) * 1000 / rect.width;
+    mouse.y = (e.clientY - rect.top) * 560 / rect.height;
+}
+
+// 左鍵按住開始瞄準
+canvas.addEventListener("mousedown", e => {
+    if (e.button === 0) {
+        mouse.dragging = true;
+        getMouse(e);
+    }
+});
+
+// 移動滑鼠更新準星
+canvas.addEventListener("mousemove", getMouse);
+
+// 放開左鍵停止拖曳
+window.addEventListener("mouseup", e => {
+    if (e.button === 0) mouse.dragging = false;
+});
+
+// ==========================================
+// 4. 隨機數工具
+// ==========================================
+
+function rand(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+// ==========================================
+// 5. 背景：黃昏天空
+// ==========================================
+
+function drawSky() {
+
+    const sky = ctx.createLinearGradient(0, 0, 0, 560);
+
+    sky.addColorStop(0, "#15152d");
+    sky.addColorStop(0.4, "#59314b");
+    sky.addColorStop(0.75, "#bc6446");
+    sky.addColorStop(1, "#382033");
+
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, 1000, 560);
+
+    // 月亮
+    ctx.fillStyle = "#f6e4bd";
+    ctx.shadowColor = "#ffe0a1";
+    ctx.shadowBlur = 30;
+
+    ctx.beginPath();
+    ctx.arc(790, 105, 42, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // 星星
+    stars.forEach(s => {
+        ctx.globalAlpha = 0.4 + Math.sin(elapsed * 2 + s.x) * 0.3;
+        ctx.fillStyle = "#fff1ce";
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+    });
+
+    ctx.globalAlpha = 1;
+}
+
+// ==========================================
+// 6. 背景：移動的雲
+// ==========================================
+
+function drawClouds(dt) {
+
+    clouds.forEach(c => {
+
+        c.x += c.speed * dt;
+
+        if (c.x > 1150) c.x = -150;
+
+        ctx.fillStyle = "rgba(35,25,48,0.45)";
+
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y, 70, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+    });
+}
+
+// ==========================================
+// 7. 背景：遠方山丘與墓園
+// ==========================================
+
+function drawGraveyard() {
+
+    // 遠方山丘
+    ctx.fillStyle = "#272039";
+    ctx.beginPath();
+    ctx.moveTo(0, 340);
+    ctx.quadraticCurveTo(220, 260, 450, 350);
+    ctx.quadraticCurveTo(720, 265, 1000, 350);
+    ctx.lineTo(1000, 560);
+    ctx.lineTo(0, 560);
+    ctx.fill();
+
+    // 遠方墓碑
+    for (let i = 0; i < 12; i++) {
+
+        const x = i * 95 + 15;
+        const y = 350 + (i % 3) * 18;
+
+        ctx.fillStyle = "#565064";
+
+        ctx.beginPath();
+        ctx.roundRect(x, y, 32, 65, [12, 12, 0, 0]);
+        ctx.fill();
+
+        ctx.fillStyle = "#b8a2a0";
+        ctx.font = "20px serif";
+        ctx.fillText("+", x + 9, y + 35);
+    }
+
+    // 前景地面
+    ctx.fillStyle = "#171924";
+    ctx.fillRect(0, 470, 1000, 90);
+
+    // 地面裂痕
+    ctx.strokeStyle = "#39313a";
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < 9; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * 130, 490);
+        ctx.lineTo(i * 130 + 35, 510);
+        ctx.lineTo(i * 130 + 20, 530);
+        ctx.stroke();
+    }
+}
+
+// ==========================================
+// 8. 背景：枯樹
+// ==========================================
+
+function drawTree(x, y, scale) {
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    ctx.strokeStyle = "#211a29";
+    ctx.lineWidth = 13;
+    ctx.lineCap = "round";
+
+    // 樹幹
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -145);
+
+    // 左側樹枝
+    ctx.moveTo(0, -80);
+    ctx.lineTo(-48, -125);
+    ctx.lineTo(-65, -165);
+
+    // 右側樹枝
+    ctx.moveTo(0, -100);
+    ctx.lineTo(50, -140);
+    ctx.lineTo(75, -175);
+
+    // 上方枝條
+    ctx.moveTo(0, -140);
+    ctx.lineTo(-20, -185);
+
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// ==========================================
+// 9. 背景：南瓜燈
+// ==========================================
+
+function drawPumpkin(x, y, size) {
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(size, size);
+
+    // 光暈
+    ctx.fillStyle = "rgba(255,140,30,0.13)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 48, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 南瓜
+    ctx.fillStyle = "#ed8128";
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 29, 23, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 南瓜柄
+    ctx.fillStyle = "#647b3a";
+    ctx.fillRect(-4, -30, 8, 12);
+
+    // 眼睛
+    ctx.fillStyle = "#ffe28c";
+
+    ctx.beginPath();
+    ctx.moveTo(-18, -8);
+    ctx.lineTo(-8, -2);
+    ctx.lineTo(-17, 3);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(18, -8);
+    ctx.lineTo(8, -2);
+    ctx.lineTo(17, 3);
+    ctx.fill();
+
+    // 嘴巴
+    ctx.fillStyle = "#2b1721";
+    ctx.fillRect(-12, 9, 24, 6);
+
+    ctx.restore();
+}
+
+// ==========================================
+// 10. 背景整合
+// ==========================================
+
+function drawBackground(dt) {
+
+    drawSky();
+    drawClouds(dt);
+    drawGraveyard();
+
+    // 枯樹
+    drawTree(65, 450, 1.1);
+    drawTree(930, 450, 1.2);
+
+    // 南瓜燈
+    drawPumpkin(110, 510, 1);
+    drawPumpkin(350, 525, 0.8);
+    drawPumpkin(680, 525, 0.9);
+    drawPumpkin(890, 510, 1);
+}
+
+// ==========================================
+// 11. 建立殭屍
+// ==========================================
+
+function spawnZombie() {
+
+    zombies.push({
+
+        x: rand(60, 940),
+        y: rand(245, 340),
+
+        // 代表殭屍在畫面中的深度
+        depth: rand(0.55, 0.85),
+
+        speed: rand(14, 24) + kills * 0.25,
+
+        // 行走動畫
+        walk: rand(0, 10),
+
+        // 左右搖擺
+        sway: rand(0, 10),
+
+        // 每隻殭屍的顏色變化
+        skin: Math.random() > 0.5 ? "#78966a" : "#879b71",
+
+        alive: true
+    });
+}
+
+// ==========================================
+// 12. 繪製殭屍角色
+// ==========================================
+
+function drawZombie(z) {
+
+    ctx.save();
+
+    ctx.translate(z.x, z.y);
+
+    // 隨深度改變殭屍大小
+    const size = z.depth;
+
+    ctx.scale(size, size);
+
+    // 動態行走
+    const leg = Math.sin(z.walk) * 9;
+    const arm = Math.sin(z.walk + 1) * 8;
+    const tilt = Math.sin(z.walk * 0.5) * 0.05;
+
+    ctx.rotate(tilt);
+
+    // 地面陰影
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(0, 60, 38, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 腿部
+    ctx.lineCap = "round";
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = "#42434a";
+
+    ctx.beginPath();
+    ctx.moveTo(-12, 25);
+    ctx.lineTo(-15 + leg, 57);
+    ctx.moveTo(12, 25);
+    ctx.lineTo(15 - leg, 57);
+    ctx.stroke();
+
+    // 破爛褲子
+    ctx.fillStyle = "#46404a";
+    ctx.fillRect(-20, 22, 40, 15);
+
+    // 身體
+    ctx.fillStyle = z.skin;
+    ctx.beginPath();
+    ctx.roundRect(-25, -20, 50, 55, 12);
+    ctx.fill();
+
+    // 衣服
+    ctx.fillStyle = "#484c45";
+    ctx.fillRect(-23, -8, 46, 37);
+
+    // 破衣服的缺口
+    ctx.fillStyle = "#27232c";
+    ctx.beginPath();
+    ctx.moveTo(-22, 20);
+    ctx.lineTo(-10, 32);
+    ctx.lineTo(-4, 22);
+    ctx.lineTo(5, 35);
+    ctx.lineTo(15, 20);
+    ctx.fill();
+
+    // 左右手臂
+    ctx.strokeStyle = z.skin;
+    ctx.lineWidth = 13;
+
+    ctx.beginPath();
+    ctx.moveTo(-20, -12);
+    ctx.lineTo(-42, -30 + arm);
+    ctx.lineTo(-49, -20 + arm);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(20, -12);
+    ctx.lineTo(42, -30 - arm);
+    ctx.lineTo(49, -20 - arm);
+    ctx.stroke();
+
+    // 手掌
+    ctx.fillStyle = z.skin;
+
+    ctx.beginPath();
+    ctx.arc(-49, -20 + arm, 9, 0, Math.PI * 2);
+    ctx.arc(49, -20 - arm, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 頭部
+    ctx.fillStyle = z.skin;
+    ctx.beginPath();
+    ctx.ellipse(0, -43, 26, 29, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 耳朵
+    ctx.beginPath();
+    ctx.arc(-25, -43, 8, 0, Math.PI * 2);
+    ctx.arc(25, -43, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 頭髮
+    ctx.fillStyle = "#28242c";
+    ctx.beginPath();
+    ctx.moveTo(-25, -51);
+    ctx.lineTo(-22, -72);
+    ctx.lineTo(-10, -66);
+    ctx.lineTo(0, -75);
+    ctx.lineTo(10, -64);
+    ctx.lineTo(25, -69);
+    ctx.lineTo(24, -48);
+    ctx.fill();
+
+    // 發光眼睛
+    ctx.shadowColor = "#ffcf4b";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "#ffdb58";
+
+    ctx.beginPath();
+    ctx.arc(-10, -45, 5, 0, Math.PI * 2);
+    ctx.arc(10, -45, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // 瞳孔
+    ctx.fillStyle = "#241b20";
+    ctx.beginPath();
+    ctx.arc(-10, -45, 2, 0, Math.PI * 2);
+    ctx.arc(10, -45, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 鼻子
+    ctx.fillStyle = "#4a5745";
+    ctx.beginPath();
+    ctx.moveTo(0, -39);
+    ctx.lineTo(-5, -31);
+    ctx.lineTo(5, -31);
+    ctx.fill();
+
+    // 張開的嘴巴
+    ctx.fillStyle = "#301c24";
+    ctx.beginPath();
+    ctx.ellipse(0, -22, 12, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 牙齒
+    ctx.fillStyle = "#eee3c7";
+    ctx.fillRect(-8, -29, 5, 5);
+    ctx.fillRect(3, -29, 5, 5);
+
+    // 傷痕
+    ctx.strokeStyle = "#a45a50";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-19, -35);
+    ctx.lineTo(-14, -29);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// ==========================================
+// 13. 攻擊：魔法南瓜彈
+// ==========================================
+
+canvas.addEventListener("contextmenu", e => {
+
+    e.preventDefault();
+
+    if (!running) return;
+
+    getMouse(e);
+
+    // 建立攻擊特效
+    bullets.push({
+        x: mouse.x,
+        y: mouse.y,
+        life: 12
+    });
+
+    // 判斷是否擊中殭屍
+    let target = null;
+    let minDistance = Infinity;
+
+    zombies.forEach(z => {
+
+        const distance = Math.hypot(
+            mouse.x - z.x,
+            mouse.y - (z.y - 38 * z.depth)
+        );
+
+        // 殭屍大小會影響判定範圍
+        if (distance < 48 * z.depth && distance < minDistance) {
+            target = z;
+            minDistance = distance;
+        }
+    });
+
+    if (target) {
+
+        target.alive = false;
+
+        score += 100;
+        kills++;
+
+        scoreEl.textContent = score;
+        killsEl.textContent = kills;
+
+        // 命中特效
+        createParticles(target.x, target.y - 20);
+    }
+
+});
+
+// ==========================================
+// 14. 命中粒子特效
+// ==========================================
+
+function createParticles(x, y) {
+
+    for (let i = 0; i < 20; i++) {
+
+        particles.push({
+
+            x: x,
+            y: y,
+
+            vx: rand(-4, 4),
+            vy: rand(-5, 3),
+
+            life: rand(15, 30),
+            size: rand(2, 6)
+        });
+    }
+}
+
+// 繪製粒子
+function drawParticles(dt) {
+
+    particles.forEach(p => {
+
+        p.x += p.vx * dt * 0.06;
+        p.y += p.vy * dt * 0.06;
+
+        p.life -= dt * 0.04;
+
+        ctx.globalAlpha = Math.max(0, p.life / 30);
+        ctx.fillStyle = "#ffac45";
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    ctx.globalAlpha = 1;
+
+    particles = particles.filter(p => p.life > 0);
+}
+
+// ==========================================
+// 15. 繪製攻擊提示
+// ==========================================
+
+function drawBullets() {
+
+    bullets.forEach(b => {
+
+        ctx.fillStyle = "#ffb044";
+        ctx.shadowColor = "#ff772a";
+        ctx.shadowBlur = 20;
+
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 7, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+
+        b.life--;
+    });
+
+    bullets = bullets.filter(b => b.life > 0);
+}
+
+// ==========================================
+// 16. 繪製瞄準準星
+// ==========================================
+
+function drawCrosshair() {
+
+    ctx.save();
+
+    ctx.strokeStyle = "#ffe6b3";
+    ctx.lineWidth = 2;
+
+    // 瞄準圈
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, 17, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 十字線
+    ctx.beginPath();
+
+    ctx.moveTo(mouse.x - 28, mouse.y);
+    ctx.lineTo(mouse.x - 8, mouse.y);
+
+    ctx.moveTo(mouse.x + 8, mouse.y);
+    ctx.lineTo(mouse.x + 28, mouse.y);
+
+    ctx.moveTo(mouse.x, mouse.y - 28);
+    ctx.lineTo(mouse.x, mouse.y - 8);
+
+    ctx.moveTo(mouse.x, mouse.y + 8);
+    ctx.lineTo(mouse.x, mouse.y + 28);
+
+    ctx.stroke();
+
+    // 中央準星
+    ctx.fillStyle = "#ffbd5b";
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+// ==========================================
+// 17. 更新殭屍位置
+// ==========================================
+
+function updateZombies(dt) {
+
+    zombies.forEach(z => {
+
+        // 殭屍逐漸靠近玩家
+        z.y += z.speed * dt / 1000;
+
+        // 更新行走動畫
+        z.walk += dt * 0.008;
+
+        // 左右搖擺
+        z.x += Math.sin(z.walk * 0.5) * dt * 0.008;
+
+        // 抵達防線
+        if (z.y > 475 && z.alive) {
+
+            z.alive = false;
+
+            life--;
+
+            lifeEl.textContent = life;
+
+            shake = 10;
+
+            if (life <= 0) endGame();
+        }
+    });
+
+    zombies = zombies.filter(z => z.alive);
+}
+
+// ==========================================
+// 18. 初始化背景素材
+// ==========================================
+
+function initBackground() {
+
+    stars = [];
+    clouds = [];
+
+    // 產生星星
+    for (let i = 0; i < 70; i++) {
+        stars.push({
+            x: rand(0, 1000),
+            y: rand(0, 250),
+            size: rand(1, 3)
+        });
+    }
+
+    // 產生雲朵
+    for (let i = 0; i < 6; i++) {
+        clouds.push({
+            x: rand(0, 1000),
+            y: rand(40, 220),
+            speed: rand(5, 16)
+        });
+    }
+}
+
+// ==========================================
+// 19. 遊戲主動畫
+// ==========================================
+
+function animate(timestamp) {
+
+    const dt = Math.min(timestamp - (lastTime || timestamp), 40);
+    lastTime = timestamp;
+
+    // 清空畫布
+    ctx.clearRect(0, 0, 1000, 560);
+
+    // 螢幕震動
+    ctx.save();
+
+    if (shake > 0) {
+        ctx.translate(rand(-shake, shake), rand(-shake, shake));
+        shake *= 0.85;
+    }
+
+    // 背景
+    drawBackground(dt);
+
+    // 更新與繪製殭屍
+    if (running) {
+
+        updateZombies(dt);
+
+        // 生成殭屍
+        spawnTime += dt;
+
+        const interval = Math.max(450, 1300 - kills * 15);
+
+        if (spawnTime >= interval) {
+            spawnZombie();
+            spawnTime = 0;
+        }
+    }
+
+    // 按遠近排序，近處的殭屍畫在上層
+    zombies.sort((a, b) => a.y - b.y);
+
+    zombies.forEach(z => {
+        drawZombie(z);
+    });
+
+    // 攻擊特效
+    drawBullets();
+    drawParticles();
+
+    // 瞄準準星
+    drawCrosshair();
+
+    ctx.restore();
+
+    requestAnimationFrame(animate);
+}
+
+// ==========================================
+// 20. 開始遊戲
+// ==========================================
+
+function startGame() {
+
+    score = 0;
+    kills = 0;
+    life = 5;
+    time = 60;
+
+    zombies = [];
+    particles = [];
+    bullets = [];
+
+    spawnTime = 0;
+    elapsed = 0;
+    lastTime = 0;
+
+    running = true;
+
+    scoreEl.textContent = score;
+    killsEl.textContent = kills;
+    lifeEl.textContent = life;
+    timeEl.textContent = time;
+
+    messageEl.textContent = "🧟 殭屍來襲！守住防線！";
+
+    startBtn.textContent = "RESTART";
+
+    // 初始生成五隻殭屍
+    for (let i = 0; i < 5; i++) {
+        spawnZombie();
+    }
+
+    clearInterval(window.countdown);
+
+    // 倒數計時
+    window.countdown = setInterval(() => {
+
+        if (!running) return;
+
+        time--;
+
+        timeEl.textContent = time;
+
+        if (time <= 0) endGame();
+
+    }, 1000);
+}
+
+// ==========================================
+// 21. 結束遊戲
+// ==========================================
+
+function endGame() {
+
+    if (!running) return;
+
+    running = false;
+
+    clearInterval(window.countdown);
+
+    messageEl.textContent =
+        life <= 0
+        ? "💀 防線失守！最終得分：" + score
+        : "🏆 黎明來臨！成功守住墓園！得分：" + score;
+
+    startBtn.textContent = "PLAY AGAIN";
+}
+
+// ==========================================
+// 22. 按鈕事件
+// ==========================================
+
+startBtn.addEventListener("click", startGame);
+
+// ==========================================
+// 23. 初始化並啟動動畫
+// ==========================================
+
+initBackground();
+requestAnimationFrame(animate);
+
+</script>
+</body>
+</html>
